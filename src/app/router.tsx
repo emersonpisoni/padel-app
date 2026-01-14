@@ -14,7 +14,6 @@ export const router = createBrowserRouter([
       { path: "/", element: <TournamentsListPage /> },
       { path: "/tournaments/:id", element: <TournamentDetailPage /> },
       { path: "/ranking", element: <RankingPage /> },
-
       {
         path: "/admin",
         element: (

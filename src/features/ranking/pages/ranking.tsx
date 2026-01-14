@@ -1,64 +1,196 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { getRanking } from "../../../api/ranking";
+import { rankingCategoriesMock, rankingRowsMock, type RankingRow } from "../mocks";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
+type SortKey = "points" | "tournamentsPlayed" | "lastResultAt";
+type SortDir = "desc" | "asc";
+
+function compareRows(a: RankingRow, b: RankingRow, key: SortKey, dir: SortDir) {
+  const mult = dir === "desc" ? -1 : 1;
+
+  if (key === "lastResultAt") {
+    const av = new Date(a.lastResultAt).getTime();
+    const bv = new Date(b.lastResultAt).getTime();
+    if (av === bv) return 0;
+    return av < bv ? -1 * mult : 1 * mult;
+  }
+
+  const av = a[key];
+  const bv = b[key];
+  if (av === bv) return 0;
+  return av < bv ? -1 * mult : 1 * mult;
+}
 
 export function RankingPage() {
-  // no MVP, um select simples; depois você busca /ranking-categories
-  const [rankingCategoryId, setRankingCategoryId] = useState<string>("");
+  const [rankingCategoryId, setRankingCategoryId] = useState<string>(rankingCategoriesMock[0]?.id ?? "");
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("points");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  const enabled = Boolean(rankingCategoryId);
+  const selectedCategory = useMemo(
+    () => rankingCategoriesMock.find((c) => c.id === rankingCategoryId),
+    [rankingCategoryId]
+  );
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["ranking", rankingCategoryId],
-    queryFn: () => getRanking({ rankingCategoryId }),
-    enabled,
-  });
+  const rows = useMemo(() => {
+    const base = rankingRowsMock.filter((r) => r.rankingCategoryId === rankingCategoryId);
 
-  const rows = useMemo(() => data ?? [], [data]);
+    const filtered = base.filter((r) =>
+      r.playerName.toLowerCase().includes(search.trim().toLowerCase())
+    );
+
+    // Ordenação principal (ex.: pontos desc) + tie-breaks
+    const sorted = [...filtered].sort((a, b) => {
+      // chave escolhida
+      const primary = compareRows(a, b, sortKey, sortDir);
+      if (primary !== 0) return primary;
+
+      // tie-break 1: pontos desc (se não for a chave principal)
+      if (sortKey !== "points") {
+        const t1 = compareRows(a, b, "points", "desc");
+        if (t1 !== 0) return t1;
+      }
+
+      // tie-break 2: mais torneios jogados desc
+      const t2 = compareRows(a, b, "tournamentsPlayed", "desc");
+      if (t2 !== 0) return t2;
+
+      // tie-break 3: resultado mais recente desc
+      const t3 = compareRows(a, b, "lastResultAt", "desc");
+      if (t3 !== 0) return t3;
+
+      // tie-break final: nome asc
+      return a.playerName.localeCompare(b.playerName);
+    });
+
+    // Calcula posição
+    return sorted.map((r, i) => ({ ...r, position: i + 1 }));
+  }, [rankingCategoryId, search, sortKey, sortDir]);
+
+  function toggleSortDir() {
+    setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+  }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Ranking</h1>
-
-      <div className="rounded border bg-white p-4 space-y-2">
-        <label className="text-sm text-gray-700">Categoria</label>
-        <input
-          value={rankingCategoryId}
-          onChange={(e) => setRankingCategoryId(e.target.value)}
-          placeholder="Cole o ID (MVP) — depois virá de um select"
-          className="w-full rounded border px-3 py-2"
-        />
-        <div className="text-xs text-gray-500">
-          Próximo passo: carregar /ranking-categories e trocar por dropdown.
+    <div className="">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Ranking</h1>
+          <p className="text-sm text-muted-foreground">
+            Dados mockados (MVP). Em seguida conectamos ao backend.
+          </p>
         </div>
+        {selectedCategory && (
+          <Badge variant="secondary" className="mt-1">
+            {selectedCategory.name}
+          </Badge>
+        )}
       </div>
 
-      {!enabled && <div className="text-sm text-gray-600">Selecione uma categoria para ver o ranking.</div>}
-      {isLoading && <div>Carregando ranking...</div>}
-      {isError && <div>Falha ao carregar ranking.</div>}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Filtros</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Categoria</div>
+            <Select value={rankingCategoryId} onValueChange={setRankingCategoryId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione..." />
+              </SelectTrigger>
+              <SelectContent>
+                {rankingCategoriesMock.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      {enabled && !isLoading && !isError && (
-        <div className="rounded border bg-white overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="text-left p-3">#</th>
-                <th className="text-left p-3">Jogador</th>
-                <th className="text-left p-3">Pontos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.playerId} className="border-t">
-                  <td className="p-3">{r.position}</td>
-                  <td className="p-3">{r.playerName}</td>
-                  <td className="p-3">{r.points}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Buscar jogador</div>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Ex.: Bruno"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Ordenação</div>
+            <div className="flex gap-2">
+              <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="points">Pontos</SelectItem>
+                  <SelectItem value="tournamentsPlayed">Torneios</SelectItem>
+                  <SelectItem value="lastResultAt">Mais recente</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Button type="button" variant="outline" onClick={toggleSortDir}>
+                {sortDir === "desc" ? "Desc" : "Asc"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">Classificação</CardTitle>
+          <div className="text-sm text-muted-foreground">
+            {rows.length} jogador(es)
+          </div>
+        </CardHeader>
+
+        <CardContent>
+          <div className="rounded-md border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[60px]">#</TableHead>
+                  <TableHead>Jogador</TableHead>
+                  <TableHead className="text-right">Pontos</TableHead>
+                  <TableHead className="text-right">Torneios</TableHead>
+                  <TableHead className="text-right">Último</TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={r.playerId}>
+                    <TableCell className="font-medium">{(r as any).position}</TableCell>
+                    <TableCell>{r.playerName}</TableCell>
+                    <TableCell className="text-right">{r.points}</TableCell>
+                    <TableCell className="text-right">{r.tournamentsPlayed}</TableCell>
+                    <TableCell className="text-right">
+                      {new Date(r.lastResultAt).toLocaleDateString()}
+                    </TableCell>
+                  </TableRow>
+                ))}
+
+                {rows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                      Nenhum jogador encontrado.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
